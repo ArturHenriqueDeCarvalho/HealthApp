@@ -1,9 +1,9 @@
 import React from 'react';
 import { useProtocol } from '../context/ProtocolContext';
-import { Shield, ChevronLeft, ChevronRight, Calendar, Award } from 'lucide-react';
+import { Shield, ChevronLeft, ChevronRight, Calendar, Award, Database } from 'lucide-react';
 
 export default function Header() {
-  const { currentDay, setCurrentDay, getPhaseForDay } = useProtocol();
+  const { currentDay, setCurrentDay, getPhaseForDay, dbStatus } = useProtocol();
   const currentPhase = getPhaseForDay(currentDay);
 
   return (
@@ -25,10 +25,16 @@ export default function Header() {
             </div>
           </div>
 
-          {/* Mobile Phase Badge */}
-          <div className="sm:hidden px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-1">
-            <Award className="w-3.5 h-3.5" />
-            Fase {currentPhase.id}
+          {/* Database & Phase Badges on Mobile */}
+          <div className="flex items-center gap-1.5 sm:hidden">
+            <div className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 border border-slate-800 text-cyan-400 flex items-center gap-1">
+              <Database className="w-3 h-3 text-cyan-400" />
+              <span>{dbStatus === 'connected' ? 'Supabase' : 'Local'}</span>
+            </div>
+            <div className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-1">
+              <Award className="w-3.5 h-3.5" />
+              Fase {currentPhase.id}
+            </div>
           </div>
         </div>
 
@@ -60,10 +66,16 @@ export default function Header() {
           </button>
         </div>
 
-        {/* Desktop Phase Badge */}
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-300">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-          <span className="text-emerald-400 font-bold">{currentPhase.name}</span>
+        {/* Desktop Phase & DB Status Badges */}
+        <div className="hidden sm:flex items-center gap-2">
+          <div className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-cyan-300 flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Supabase: <strong className="text-cyan-400">{dbStatus === 'connected' ? 'Conectado' : 'Offline'}</strong></span>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 text-slate-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+            <span className="text-emerald-400 font-bold">{currentPhase.name}</span>
+          </div>
         </div>
       </div>
     </header>

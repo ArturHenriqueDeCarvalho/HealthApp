@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { USER_PROFILE, WORKOUT_SCHEDULE_FASE1, MEAL_PRESETS, PHASES } from '../data/protocolData';
+import { supabase } from '../lib/supabase';
 
 const ProtocolContext = createContext();
 
@@ -24,6 +25,46 @@ export function ProtocolProvider({ children }) {
     return {};
   });
 
+  const [dbStatus, setDbStatus] = useState('syncing'); // 'syncing' | 'connected' | 'offline'
+
+  // Load initial logs from Supabase on mount
+  useEffect(() => {
+    async function loadFromSupabase() {
+      try {
+        const { data: dailyData, error: dailyErr } = await supabase
+          .from('daily_logs')
+          .select('*');
+
+        if (!dailyErr && dailyData) {
+          setDbStatus('connected');
+          setLogs((prev) => {
+            const merged = { ...prev };
+            dailyData.forEach((row) => {
+              const day = row.day_number;
+              merged[day] = {
+                ...(merged[day] || {}),
+                waterMl: row.water_ml ?? merged[day]?.waterMl ?? 0,
+                cardioDone: row.cardio_done ?? merged[day]?.cardioDone ?? false,
+                mobilityDone: row.mobility_done ?? merged[day]?.mobilityDone ?? false,
+                weightKg: row.weight_kg ?? merged[day]?.weightKg ?? USER_PROFILE.initialWeightKg,
+                completedMeals: row.completed_meals || merged[day]?.completedMeals || {}
+              };
+            });
+            return merged;
+          });
+        } else {
+          setDbStatus('connected');
+        }
+      } catch (e) {
+        console.log("Supabase sync running in offline/local mode", e);
+        setDbStatus('offline');
+      }
+    }
+
+    loadFromSupabase();
+  }, []);
+
+  // Save to localStorage
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
   }, [logs]);
@@ -38,7 +79,6 @@ export function ProtocolProvider({ children }) {
     }
   };
 
-  // Get or initialize log for a specific day
   const getDayLog = (dayNum = currentDay) => {
     return logs[dayNum] || {
       waterMl: 0,
@@ -49,14 +89,13 @@ export function ProtocolProvider({ children }) {
       checkIn: {
         energy: 8,
         doms: 3,
-        jointStatus: 'good', // 'good' | 'warning' | 'pain'
+        jointStatus: 'good',
         notes: ''
       },
       weightKg: USER_PROFILE.initialWeightKg
     };
   };
 
-  // Update log for a specific day
   const updateDayLog = (dayNum, updateFn) => {
     setLogs((prev) => {
       const currentLog = prev[dayNum] || {
@@ -74,11 +113,24 @@ export function ProtocolProvider({ children }) {
         weightKg: USER_PROFILE.initialWeightKg
       };
       const updated = typeof updateFn === 'function' ? updateFn(currentLog) : { ...currentLog, ...updateFn };
+      
+      // Async background sync to Supabase
+      supabase.from('daily_logs').upsert({
+        day_number: dayNum,
+        water_ml: updated.waterMl,
+        cardio_done: updated.cardioDone,
+        mobility_done: updated.mobilityDone,
+        weight_kg: updated.weightKg,
+        completed_meals: updated.completedMeals,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'day_number' }).then(({ error }) => {
+        if (!error) setDbStatus('connected');
+      }).catch(() => setDbStatus('offline'));
+
       return { ...prev, [dayNum]: updated };
     });
   };
 
-  // Quick Action Helpers
   const addWater = (ml, dayNum = currentDay) => {
     updateDayLog(dayNum, (prev) => ({
       ...prev,
@@ -105,6 +157,16 @@ export function ProtocolProvider({ children }) {
           reps: setDetails?.reps || exMap[exId]?.reps || ''
         };
       }
+
+      // Sync exercise to Supabase
+      supabase.from('exercise_logs').upsert({
+        day_number: dayNum,
+        exercise_id: exId,
+        completed: exMap[exId]?.completed || false,
+        weight_kg: exMap[exId]?.weightKg || '',
+        reps: exMap[exId]?.reps || ''
+      }, { onConflict: 'day_number,exercise_id' }).catch(() => {});
+
       return { ...prev, completedExercises: exMap };
     });
   };
@@ -136,6 +198,14 @@ export function ProtocolProvider({ children }) {
       ...prev,
       checkIn: { ...prev.checkIn, ...checkInData }
     }));
+
+    supabase.from('checkin_logs').upsert({
+      day_number: dayNum,
+      energy_level: checkInData.energy,
+      doms_level: checkInData.doms,
+      joint_status: checkInData.jointStatus,
+      notes: checkInData.notes
+    }, { onConflict: 'day_number' }).catch(() => {});
   };
 
   const logWeight = (weightKg, dayNum = currentDay) => {
@@ -145,16 +215,13 @@ export function ProtocolProvider({ children }) {
     }));
   };
 
-  // Helper to determine phase for any day
   const getPhaseForDay = (dayNum) => {
     if (dayNum <= 30) return PHASES[0];
     if (dayNum <= 60) return PHASES[1];
     return PHASES[2];
   };
 
-  // Helper to get workout prescription for a day
   const getWorkoutForDay = (dayNum) => {
-    // Phase 1 schedule pattern (repeats every 7 days)
     const dayOfWeekPattern = ((dayNum - 1) % 7) + 1;
     return WORKOUT_SCHEDULE_FASE1[dayOfWeekPattern] || WORKOUT_SCHEDULE_FASE1[1];
   };
@@ -174,6 +241,7 @@ export function ProtocolProvider({ children }) {
       logWeight,
       getPhaseForDay,
       getWorkoutForDay,
+      dbStatus,
       userProfile: USER_PROFILE,
       mealPresets: MEAL_PRESETS,
       phases: PHASES
